@@ -1,45 +1,60 @@
-<h1 align="center"><img width="300px" src="doc/img/isoseq3.png"/></h1>
-<h1 align="center">IsoSeq v3.2</h1>
-<p align="center">Scalable De Novo Isoform Discovery</p>
+<h1 align="center"><img width="300px" src="doc/img/isoseq.png"/></h1>
+<h1 align="center">IsoSeq v3</h1>
+<p align="center">Generate transcripts by PCR deduplication (single-cell and UMIs) </p>
 
 ***
 
-*IsoSeq v3.2* contains the newest tools to identify transcripts in
-PacBio single-molecule sequencing data.
-Starting in SMRT Link v8.0.0, those tools power the
-*IsoSeq GUI-based analysis* application.
-A composable workflow of existing tools and algorithms, combined with
-a new clustering technique, allows to process the ever-increasing yield of PacBio
-machines with similar performance to *IsoSeq* versions 1 and 2.
+## UMI/Barcode designs
 
-Focus of version 3.2 documentation is processing of polished CCS reads,
-the latest feature of *IsoSeq v3*. Processing of unpolished CCS reads with final
-transcript polishing is still supported, please refer to the
-[documentation of version 3.1](README_v3.1.md).
+Following schematic explains how IsoSeq supports single-cell tags:
 
-## Availability
-Latest version can be installed via bioconda package `isoseq3`.
+<img width="1000px" src="doc/img/isoseq-tag.png"/>
 
-Please refer to our [official pbbioconda page](https://github.com/PacificBiosciences/pbbioconda)
-for information on Installation, Support, License, Copyright, and Disclaimer.
+The tool of choice to clip tags (cell barcode, UMI, Gs), is `isoseq tag`.
+It supports design presets and custom experimental designs.
+Tags are abbreviated with a single character with optional length.
 
-## Overview
- - Workflow Overview: [high](README_v3.2.md#high-level-workflow) / [mid](README_v3.2.md#mid-level-workflow) / [low](README_v3.2.md#low-level-workflow) level
- - [Real-World Example](README_v3.2.md#real-world-example)
- - [FAQ](README_v3.2.md#faq)
- - [SMRTbell Designs](README_v3.2.md#what-smrtbell-designs-are-possible)
+`T` indicates the transcript position and is mandatory.
+It is the anchor to determine if tags are located on the 3' or 5' side.\
+`U` as in UMI must be preceeded by the length of the UMI.\
+`B` as in cell barcode must be preceed by the length of the cell barcode.\
+`G` is a special PacBio 5' UMI tag with a `GGG` suffix.
 
-## High-level workflow
+Let's explain by example, the Dropseq design of 8bp UMI 5' and 12bp barcode 5'
+is be specified with this string:
+
+    T-8U-12B
+
+Tags are concatenated with hypens.
+
+Similarly, the 10X Chromium design:
+
+    T-10U-16B
+
+The PacBio design for a 8bp UMI 5' with a fixed 3G UMI is:
+
+    8G-T
+
+We have simplified usage of those designs and offer `isoseq tag --preset` with
+the designs defined above:\
+`dropseq`, `chromium`, `pacbio`.
+
+If you have a custom experiment, combine any of those tags uniquely, for example
+the a 6bp UMI 5' and a 13bp barcode 3':
+
+    6U-T-13U
+
+## Workflow overview
 
 The high-level workflow depicts files and processes:
 
-<img width="1000px" src="doc/img/isoseq3.2-end-to-end.png"/>
+<img width="1000px" src="doc/img/isoseq-dedup-end-to-end.png"/>
 
 ## Mid-level workflow
 
 The mid-level workflow schematically explains what happens at each stage:
 
-<img width="1000px" src="doc/img/isoseq3.2-workflow.png"/>
+<img width="1000px" src="doc/img/isoseq-dedup-workflow.png"/>
 
 ## Low-level workflow
 
@@ -111,55 +126,64 @@ for each primer pair:
     movieX.fl.primer_5p--brain_3p.bam
     movieX.fl.primer_5p--liver_3p.bam
 
-### Step 3 - Refine
-Your data now contains full-length reads, but still needs to be refined by:
+### Step 3 - Tag
+Tags, such as UMIs and cell barcodes, have to be clipped from the reads and
+associated with the reads for later deduplication.
+
+**Input**
+The input file for *tag* is one demultiplexed CCS file with full-length reads:
+ - `<movie.primer--pair>.fl.bam` or `<movie.primer--pair>.fl.consensusreadset.xml`
+
+**Output**
+The following output files of *tag* contain full-length tagged:
+ - `<movie>.flt.bam`
+ - `<movie>.flt.transcriptset.xml`
+
+Insert your own design or pick a preset:
+
+    $ isoseq tag movieX.NEB_5p--NEB_Clontech_3p.fl.bam movieX.flt.bam --design/--preset
+
+### Step 4 - Refine
+Your data now contains full-length tagged reads, but still needs to be refined by:
  - [Trimming](https://github.com/PacificBiosciences/trim_isoseq_polyA) of poly(A) tails
  - Rapid concatmer [identification](https://github.com/jeffdaily/parasail) and removal
 
 **Input**
-The input file for *refine* is one demultiplexed CCS file with full-length reads
-and the primer fasta file:
- - `<movie.primer--pair>.fl.bam` or `<movie.primer--pair>.fl.consensusreadset.xml`
+The input file for *refine* full-length tagged reads and the primer fasta file:
+ - `<movie.primer--pair>.flt.bam` or `<movie.primer--pair>.flt.consensusreadset.xml`
  - `primers.fasta`
 
 **Output**
 The following output files of *refine* contain full-length non-concatemer reads:
- - `<movie>.flnc.bam`
- - `<movie>.flnc.transcriptset.xml`
+ - `<movie>.fltnc.bam`
+ - `<movie>.fltnc.transcriptset.xml`
 
 Actual command to refine:
 
-    $ isoseq3 refine movieX.NEB_5p--NEB_Clontech_3p.fl.bam primers.fasta movieX.flnc.bam
+    $ isoseq refine movieX.NEB_5p--NEB_Clontech_3p.fl.bam primers.fasta movieX.fltnc.bam
 
 If your sample has poly(A) tails, use `--require-polya`.
 This filters for FL reads that have a poly(A) tail
 with at least 20 base pairs and removes identified tail:
 
-    $ isoseq3 refine movieX.NEB_5p--NEB_Clontech_3p.fl.bam movieX.flnc.bam --require-polya
+    $ isoseq refine movieX.NEB_5p--NEB_Clontech_3p.fl.bam movieX.fltnc.bam --require-polya
 
-### Step 3b - Merge SMRT Cells
-If you used more than one SMRT cells, use `dataset` for merging,
-which can be installed with `conda install pbcoretools`.
-Merge all of your `<movie>.flnc.bam` files:
+### Step 4b - Merge SMRT Cells
+If you used more than one SMRT cells, merge all of your `<movie>.fltnc.bam` files:
 
-    $ dataset create --type TranscriptSet merged.flnc.xml movie1.flnc.bam movie2.flnc.bam movieN.flnc.bam
+    $ ls movie1.fltnc.bam movie2.fltnc.bam movieN.fltnc.bam > fltnc.fofn
 
-### Step 4 - Clustering
-Compared to previous IsoSeq approaches, *IsoSeq v3* performs a single clustering
-technique.
-Due to the nature of the algorithm, it can't be efficiently parallelized.
-It is advised to give this step as many coresas possible.
-The individual steps of *cluster* are as following:
-
- - Clustering using hierarchical n*log(n) [alignment](https://github.com/lh3/minimap2) and iterative cluster merging
- - Polished [POA](https://github.com/rvaser/spoa) sequence generation, using a QV guided consensus approach
+### Step 5 - Deduplication
+This step performs PCR deduplicates by clustering by UMI and cell barcodes (if available).
+After deduplication, *dedup* generates one consensus sequence per founder molecule,
+using a QV guided consensus approach.
 
 **Input**
-The input file for *cluster* is one FLNC file:
- - `<movie>.flnc.bam` or `merged.flnc.xml`
+The input file for *dedup* is one FLTNC file:
+ - `<movie>.fltnc.bam` or `fltnc.fofn`
 
 **Output**
-The following output files of *cluster* contain polished isoforms:
+The following output files of *dedup* contain polished isoforms:
  - `<prefix>.bam`
  - `<prefix>.hq.fasta.gz` with predicted accuracy ≥ 0.99
  - `<prefix>.lq.fasta.gz` with predicted accuracy < 0.99
@@ -168,9 +192,9 @@ The following output files of *cluster* contain polished isoforms:
 
 Example invocation:
 
-    $ isoseq3 cluster merged.flnc.xml polished.bam --verbose --use-qvs
+    $ isoseq dedup fltnc.fofn dedup.fltnc.bam --verbose
 
-## Real-world example
+<!-- ## Real-world example
 This is an example of an end-to-end cmd-line-only workflow to get from
 subreads to polished isoforms:
 
@@ -201,14 +225,14 @@ subreads to polished isoforms:
     m54086_170204_081430.fl.lima.counts  m54086_170204_081430.fl.primer_5p--primer_3p.subreadset.xml
     m54086_170204_081430.fl.lima.report
 
-    $ isoseq3 refine m54086_170204_081430.fl.primer_5p--primer_3p.bam primers.fasta m54086_170204_081430.flnc.bam
+    $ isoseq refine m54086_170204_081430.fl.primer_5p--primer_3p.bam primers.fasta m54086_170204_081430.flnc.bam
 
     $ ls m54086_170204_081430.flnc.*
     m54086_170204_081430.flnc.bam                   m54086_170204_081430.flnc.filter_summary.json
     m54086_170204_081430.flnc.bam.pbi               m54086_170204_081430.flnc.report.csv
     m54086_170204_081430.flnc.consensusreadset.xml
 
-    $ isoseq3 cluster m54086_170204_081430.flnc.bam polished.bam --verbose --use-qvs
+    $ isoseq cluster m54086_170204_081430.flnc.bam polished.bam --verbose --use-qvs
     Read BAM                 : (197791) 4s 20ms
     Convert to reads         : 1s 431ms
     Sort Reads               : 56ms 947us
@@ -225,7 +249,7 @@ subreads to polished isoforms:
     $ ls polished*
     polished.bam       polished.hq.fasta.gz
     polished.bam.pbi   polished.lq.fasta.gz
-    polished.cluster   polished.transcriptset.xml
+    polished.cluster   polished.transcriptset.xml -->
 
 ## DISCLAIMER
 
